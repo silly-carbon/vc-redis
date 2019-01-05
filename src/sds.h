@@ -44,10 +44,17 @@ typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
+
+// __attribute__ ((__packed__)) 告诉编译器不要进行对齐、填充，直接按真实大小分配内存即可。
+// 对齐不是必须的，但是没有对齐会影响性能（当然是负面影响），这在 intel 的开发者手册明确有写
+// 另外：intel cpu 的 guaranteed atomic operations 会要求特定的对齐方式。
+// 注意：因为 buf 没有指明长度，所以不会为其分配空间，不会算入结构体的 size
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
+// 可以看到sds被分成了不同的容量，每种sds保存的最多字符数由 len 的类型限定了，这样做的好处应该是：
+// 1. 合理占用空间，如果一个字符串长度不会超过 2^8 字节，那用 sdshdr16-64 来存显然是浪费（浪费了len和alloc所占用的空间）
 struct __attribute__ ((__packed__)) sdshdr8 {
     uint8_t len; /* used */
     uint8_t alloc; /* excluding the header and null terminator */
@@ -78,13 +85,28 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_16 2
 #define SDS_TYPE_32 3
 #define SDS_TYPE_64 4
-#define SDS_TYPE_MASK 7
+#define SDS_TYPE_MASK 7 // 二进制： 111b
 #define SDS_TYPE_BITS 3
+// 这里的 T 到时会被具体的 5、8、16 等等数字替代，s 是 char * 类型的指针, 应该会指向 buf
+// 比如 SDS_HDR_VAR(8,s) 会被预编译器替换成： struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8)));
+// 首先，因为编译器不会进行对齐操作，所以 sizeof(struct sdshdr8) 就是 sdshdr8 的真实大小
+// 然后 s 减去该真实大小，所得的指针sh正好就指向了 sdshdr8 结构体的首字节，也就是指向了该结构体
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+
+/*
+    突然发现自己傻了，可以用跨行注释啊。。。
+    这个和 SDS_HDR_VAR 类似，但是没有声明变量 sh
+ */
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
+/*
+    获取 sdshdr5 的长度，f 应该是结构体成员变量 flags，该变量最高5位表示字符串长度，
+    所以右移3位可以获得真实长度（去除用来表示类型的最低三位bit）
+*/
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+// 获取 sdshdr16-64 的长度，s应该是指向结构体成员 buf 的指针
 static inline size_t sdslen(const sds s) {
+    // s指针减去1，经过编译器的指针运算，正好是减小一个byte，所以指向了 flags，这里当作了数组来直接取值
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -100,15 +122,17 @@ static inline size_t sdslen(const sds s) {
     }
     return 0;
 }
-
+// 取sdshdr的可用空间，s 同上
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5: {
-            return 0;
+            return 0; // sdshdr5 可用空间总是 0
         }
+        // 其他类型的可用空间都是 分配的减去已使用的
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
+            // 变量 sh 来自于宏 SDS_HDR_VAR，指向结构体 sdshdr8-64
             return sh->alloc - sh->len;
         }
         case SDS_TYPE_16: {
@@ -126,13 +150,14 @@ static inline size_t sdsavail(const sds s) {
     }
     return 0;
 }
-
+// 直接改变结构体len属性
 static inline void sdssetlen(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             {
                 unsigned char *fp = ((unsigned char*)s)-1;
+                // newlen 组装到 flags 里面
                 *fp = SDS_TYPE_5 | (newlen << SDS_TYPE_BITS);
             }
             break;
@@ -214,7 +239,7 @@ static inline void sdssetalloc(sds s, size_t newlen) {
             break;
     }
 }
-
+// 一些函数定义
 sds sdsnewlen(const void *init, size_t initlen);
 sds sdsnew(const char *init);
 sds sdsempty(void);
