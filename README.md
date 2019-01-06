@@ -7,4 +7,5 @@
 ## 阅读源码的顺序(Phases of reading source code)
 ### Phase1: SDS(Redis实现的字符串)
 #### 1. sds.h
+定义了使用到的 sdshdr5-64，这是sds的数据结构，以及一些操作这些数据结构的函数。
 

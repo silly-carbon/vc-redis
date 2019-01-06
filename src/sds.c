@@ -40,7 +40,7 @@
 #include "sdsalloc.h"
 
 const char *SDS_NOINIT = "SDS_NOINIT";
-
+// 获取 sdshdr 所占用的空间
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -56,7 +56,8 @@ static inline int sdsHdrSize(char type) {
     }
     return 0;
 }
-
+// 判断某个size的string所需的最小 sdshdr，这样可以节省空间
+// sdsReqType -> sds Required Type？
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1<<5)
         return SDS_TYPE_5;
@@ -64,11 +65,19 @@ static inline char sdsReqType(size_t string_size) {
         return SDS_TYPE_8;
     if (string_size < 1<<16)
         return SDS_TYPE_16;
+/* 
+    LLONG_MAX 是 long long 类型所能表示的最大数值，也就是64位的数字最大值，
+    如果 LONG_MAX == LLONG_MAX 的话，说明在目标机器上，long的长度也是64位，
+    否则long的长度就是32位。
+*/
 #if (LONG_MAX == LLONG_MAX)
+    // 如果是64位的机器，根据情况选择sdshdr32或64
     if (string_size < 1ll<<32)
         return SDS_TYPE_32;
     return SDS_TYPE_64;
 #else
+    // 如果是32位的机器，sdshdr64根本不会被用到，
+    // 这是为什么呢？ //TODO
     return SDS_TYPE_32;
 #endif
 }
@@ -89,21 +98,27 @@ static inline char sdsReqType(size_t string_size) {
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
+    // 根据要初始化的字符串的长度，选择对应的sds类型
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
+    // sdshdr5对需要变化的sds支持有限，所以在注定要变的字符串身上，还是使用sdshdr8比较好
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
+    // 获取选定的sdshdr的长度
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
+    // 分配空间，空间大小为：sdshdr所需的长度 + 请求的sds字符串的长度 + 额外的 \0 所占用的一个byte
     sh = s_malloc(hdrlen+initlen+1);
     if (init==SDS_NOINIT)
+        // init 
         init = NULL;
     else if (!init)
+        // 如果 init 是 NULL，那么分配的空间全部使用 0 来填充
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
-    s = (char*)sh+hdrlen;
-    fp = ((unsigned char*)s)-1;
+    s = (char*)sh+hdrlen; // s 指向 sdshdr 的 buf
+    fp = ((unsigned char*)s)-1; // fp 指向 sdshdr的flags
     switch(type) {
         case SDS_TYPE_5: {
             *fp = type | (initlen << SDS_TYPE_BITS);
@@ -138,8 +153,11 @@ sds sdsnewlen(const void *init, size_t initlen) {
             break;
         }
     }
+    // 是否要用给定的 init 指向的数据初始化此 sds
     if (initlen && init)
         memcpy(s, init, initlen);
+    // buf最后追加 \0， 这样子就是 c语言中的 null terminated string
+    // 兼容很大一部分 c 库函数
     s[initlen] = '\0';
     return s;
 }
@@ -151,6 +169,7 @@ sds sdsempty(void) {
 }
 
 /* Create a new sds string starting from a null terminated C string. */
+// 把一个c字符串转成sds
 sds sdsnew(const char *init) {
     size_t initlen = (init == NULL) ? 0 : strlen(init);
     return sdsnewlen(init, initlen);
@@ -164,6 +183,7 @@ sds sdsdup(const sds s) {
 /* Free an sds string. No operation is performed if 's' is NULL. */
 void sdsfree(sds s) {
     if (s == NULL) return;
+    // 先计算指向sdshdr的指针，然后free
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
@@ -190,6 +210,7 @@ void sdsupdatelen(sds s) {
  * However all the existing buffer is not discarded but set as free space
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
+// 清空sds，实际上只是将sds的长度设为0，外加第一个字节变成了\0
 void sdsclear(sds s) {
     sdssetlen(s, 0);
     s[0] = '\0';
@@ -212,11 +233,14 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     if (avail >= addlen) return s;
 
     len = sdslen(s);
+    // 依旧是指针运算，sh指向sdshdr
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
+    // 新长度如果小于 SDS_MAX_PREALLOC，多分配一倍于新长度的空间
     if (newlen < SDS_MAX_PREALLOC)
         newlen *= 2;
     else
+        // 否则只多分配SDS_MAX_PREALLOC 的空间
         newlen += SDS_MAX_PREALLOC;
 
     type = sdsReqType(newlen);
@@ -224,6 +248,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     /* Don't use type 5: the user is appending to the string and type 5 is
      * not able to remember empty space, so sdsMakeRoomFor() must be called
      * at every appending operation. */
+    // 依旧不分配sdshdr5
     if (type == SDS_TYPE_5) type = SDS_TYPE_8;
 
     hdrlen = sdsHdrSize(type);
@@ -234,6 +259,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     } else {
         /* Since the header size changes, need to move the string forward,
          * and can't use realloc */
+        // sds的类型变了，所以sdshdr的size肯定变大了，不能简单使用realloc来重新分配空间
         newsh = s_malloc(hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len+1);
@@ -294,12 +320,14 @@ sds sdsRemoveFreeSpace(sds s) {
  */
 size_t sdsAllocSize(sds s) {
     size_t alloc = sdsalloc(s);
+    // alloc 由三部分组成：sdshdr的size，alloc成员的值，额外的一个字节（存储\0）
     return sdsHdrSize(s[-1])+alloc+1;
 }
 
 /* Return the pointer of the actual SDS allocation (normally SDS strings
  * are referenced by the start of the string buffer). */
 void *sdsAllocPtr(sds s) {
+    // 返回指向sdshdr的指针，传入的是指向sdshdr中buf的指针
     return (void*) (s-sdsHdrSize(s[-1]));
 }
 
@@ -372,6 +400,7 @@ void sdsIncrLen(sds s, ssize_t incr) {
  *
  * if the specified length is smaller than the current length, no operation
  * is performed. */
+// 如果len大于sds现在的长度，增加长度，增加的部分使用0填充，以及最后的\0
 sds sdsgrowzero(sds s, size_t len) {
     size_t curlen = sdslen(s);
 
@@ -390,11 +419,14 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// 这个方法是 binary-safe的，因为有len参数来控制究竟复制多少的内存空间
 sds sdscatlen(sds s, const void *t, size_t len) {
     size_t curlen = sdslen(s);
 
+    // 确保有足够的空间
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
+    // 复制 t 指向的内存区域
     memcpy(s+curlen, t, len);
     sdssetlen(s, curlen+len);
     s[curlen+len] = '\0';
@@ -405,6 +437,8 @@ sds sdscatlen(sds s, const void *t, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// 这个方法不是 binary-safe， 因为 t 是 C字符串，复制到 \0 处就会结束复制
+// 只可用于 null-termianted string
 sds sdscat(sds s, const char *t) {
     return sdscatlen(s, t, strlen(t));
 }
@@ -413,12 +447,15 @@ sds sdscat(sds s, const char *t) {
  *
  * After the call, the modified sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// 因为 t 是 sds，所以是 binary-safe 的
 sds sdscatsds(sds s, const sds t) {
     return sdscatlen(s, t, sdslen(t));
 }
 
 /* Destructively modify the sds string 's' to hold the specified binary
  * safe string pointed by 't' of length 'len' bytes. */
+// 将s的内容完全改成t指向的字符串，空间不够就make room
+// 同样也是binary-safe，因为有len参数
 sds sdscpylen(sds s, const char *t, size_t len) {
     if (sdsalloc(s) < len) {
         s = sdsMakeRoomFor(s,len-sdslen(s));
@@ -432,6 +469,7 @@ sds sdscpylen(sds s, const char *t, size_t len) {
 
 /* Like sdscpylen() but 't' must be a null-termined string so that the length
  * of the string is obtained with strlen(). */
+// sdscpylen 的 not binary-safe 版本
 sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
 }
@@ -442,7 +480,15 @@ sds sdscpy(sds s, const char *t) {
  *
  * The function returns the length of the null-terminated string
  * representation stored at 's'. */
+/*
+    SDS_LLSTR_SIZE 是使用字符串保存一个 long long 类型数值时所需的最多字节数，由三部分组成：
+    1. long long 所能表示的最大值：9223372036854775807，占用 19个字节
+    2. 负号：占用 1个字节
+    3. 最后的\0: 占用 1个字节
+    所以加起来正好 21 个字节
+*/
 #define SDS_LLSTR_SIZE 21
+// long long 类型变量转成字符串
 int sdsll2str(char *s, long long value) {
     char *p, aux;
     unsigned long long v;
@@ -452,7 +498,9 @@ int sdsll2str(char *s, long long value) {
      * an reversed string. */
     v = (value < 0) ? -value : value;
     p = s;
+    // 把数值的每一位数字的字符串值计算出来
     do {
+        // '0'的 ascii 码加上数字的值正好是该数字对应的 ascii 码
         *p++ = '0'+(v%10);
         v /= 10;
     } while(v);
@@ -463,7 +511,9 @@ int sdsll2str(char *s, long long value) {
     *p = '\0';
 
     /* Reverse the string. */
-    p--;
+    p--; // --之前p指向 \0，--之后 p可能指向负号或者最高位数字
+    // 循环交换数值的高低位数字（当然可能有负号）
+    // 这个循环完美处理了 偶数个数字和奇数个数字的情况
     while(s < p) {
         aux = *s;
         *s = *p;
@@ -475,6 +525,8 @@ int sdsll2str(char *s, long long value) {
 }
 
 /* Identical sdsll2str(), but for unsigned long long type. */
+// 这里代码和上面的 sdsll2str 部分重复了，上面的函数完全可以调用这个函数，但是需要对负号做单独处理，比较麻烦
+// 所以重复应该是为了避免对负号做特殊处理
 int sdsull2str(char *s, unsigned long long v) {
     char *p, aux;
     size_t l;
@@ -522,6 +574,8 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
 
     /* We try to start using a static buffer for speed.
      * If not possible we revert to heap allocation. */
+    // 尽量避免使用 dma（dynamic memory allocation, 即这里面的 s_malloc 函数），直接使用staticbuf提升速度
+    // staticbuf 由编译器负责分配空间，效率比较高（直接改变rsp寄存器的值即可），直接分配在 栈上，无需额外free
     if (buflen > sizeof(staticbuf)) {
         buf = s_malloc(buflen);
         if (buf == NULL) return NULL;
@@ -697,14 +751,22 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "Hello World".
  */
+// 左右两头，只要在cset中出现的char都会被trim掉
 sds sdstrim(sds s, const char *cset) {
     char *start, *end, *sp, *ep;
     size_t len;
 
     sp = start = s;
     ep = end = s+sdslen(s)-1;
+    // sp向end遍历，直到大于end或者sp指向的char不在cset之中。
+    // 注意，如果sp指向end，*sp还在cset之中，那么sp会自增，由此大于end
     while(sp <= end && strchr(cset, *sp)) sp++;
+    // ep向sp遍历
     while(ep > sp && strchr(cset, *ep)) ep--;
+    /*
+        如果sp>ep，说明sp = end + 1，这说明s中字符全在cset里面，所以最后的结果是空字符串，长度为0
+        否则，s中至少有一个字符不在cset之中（正好一个的话，sp=end，但是 strchr(cset, *sp) 返回false， 这时(ep-sp)+1 = end - end + 1 正好是1）
+    */
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     if (s != sp) memmove(s, sp, len);
     s[len] = '\0';

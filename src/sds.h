@@ -49,6 +49,9 @@ typedef char *sds;
 // 对齐不是必须的，但是没有对齐会影响性能（当然是负面影响），这在 intel 的开发者手册明确有写
 // 另外：intel cpu 的 guaranteed atomic operations 会要求特定的对齐方式。
 // 注意：因为 buf 没有指明长度，所以不会为其分配空间，不会算入结构体的 size
+// 后续更新：此外，不对齐最重要的原因是：接下来的很多运算都会使用 buf - 1 来直接获取 flags，如果有对齐的话，
+// flags后面会填充3个或者7个字节等等，具体取决于对齐方式，那么buf - 1肯定不能获取到flags了，
+// 会需要更加复杂的策略来决定到底应该在buf的基础上减去多少字节才能取到flags
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
