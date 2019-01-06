@@ -790,11 +790,13 @@ sds sdstrim(sds s, const char *cset) {
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
  */
+// substring 函数
 void sdsrange(sds s, ssize_t start, ssize_t end) {
     size_t newlen, len = sdslen(s);
 
     if (len == 0) return;
     if (start < 0) {
+        // 如果start为负数，len+start直接定位到真正的索引位置
         start = len+start;
         if (start < 0) start = 0;
     }
@@ -802,18 +804,23 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
         end = len+end;
         if (end < 0) end = 0;
     }
+    // 到这里，start和end都是大于等于0的索引了
     newlen = (start > end) ? 0 : (end-start)+1;
     if (newlen != 0) {
+        // 如果start大于len，返回空字符串
         if (start >= (ssize_t)len) {
             newlen = 0;
         } else if (end >= (ssize_t)len) {
+            // 如果 end 大于len，返回start和之后的所有部分
             end = len-1;
             newlen = (start > end) ? 0 : (end-start)+1;
         }
     } else {
         start = 0;
     }
+    // 如果start ！= 0 才复制
     if (start && newlen) memmove(s, s+start, newlen);
+    // 这里在新字符串结尾添加了\0，并顺带处理了 start == 0 的情况（此时无需复制原字符串，直接截断就行）
     s[newlen] = 0;
     sdssetlen(s,newlen);
 }
@@ -822,6 +829,7 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
 void sdstolower(sds s) {
     size_t len = sdslen(s), j;
 
+    // O(n)复杂度
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
@@ -843,6 +851,7 @@ void sdstoupper(sds s) {
  * If two strings share exactly the same prefix, but one of the two has
  * additional characters, the longer string is considered to be greater than
  * the smaller one. */
+// 字符串比较算法，和其他语言的一致
 int sdscmp(const sds s1, const sds s2) {
     size_t l1, l2, minlen;
     int cmp;
@@ -871,6 +880,12 @@ int sdscmp(const sds s1, const sds s2) {
  * requires length arguments. sdssplit() is just the
  * same function but for zero-terminated strings.
  */
+/* 吐槽一下，c 字符串的叫法真多：
+    1: null-terminated string; 
+    2:(上面注释用到的) zero-terminated string
+    3: C string
+    当然都不是 binary-safe 的，因为字符串本身不能保存 '\0'，也就是 0b
+*/
 sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count) {
     int elements = 0, slots = 5;
     long start = 0, j;
@@ -878,6 +893,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
 
     if (seplen < 1 || len < 0) return NULL;
 
+    // 预先分配 5 个sds *
     tokens = s_malloc(sizeof(sds)*slots);
     if (tokens == NULL) return NULL;
 
@@ -885,6 +901,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
         *count = 0;
         return tokens;
     }
+    // j < (len-(seplen-1))，确保循环只会在测试了最后一个seplen长度的字符串之后即停止，剩下的字符要么为空，要么根本长度不够，组不成一个sep，自然可以直接split
     for (j = 0; j < (len-(seplen-1)); j++) {
         /* make sure there is room for the next element and the final one */
         if (slots < elements+2) {
@@ -892,19 +909,28 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
 
             slots *= 2;
             newtokens = s_realloc(tokens,sizeof(sds)*slots);
-            if (newtokens == NULL) goto cleanup;
+            // 如果新的空间分配失败了，做好清理工作然后返回
+            if (newtokens == NULL) goto cleanup;  // 在很多书上，goto 都是声名狼藉的，这是第一次在实际的项目中看到它真正被用了
             tokens = newtokens;
         }
         /* search the separator */
+        // 区分seplen为1和大于1的情况
         if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
+            // start开始，j之前的字符串提取出来，这是一个split
             tokens[elements] = sdsnewlen(s+start,j-start);
             if (tokens[elements] == NULL) goto cleanup;
             elements++;
+            // start跳到匹配的字符串之后
             start = j+seplen;
+            // j也跳过匹配的字符串，进行下一次匹配，注意必须-1因为for循环会+1
             j = j+seplen-1; /* skip the separator */
         }
     }
     /* Add the final element. We are sure there is room in the tokens array. */
+    // 这里当 len == start 的时候会获取到一个长度为0的sdshdr，也就是空字符串
+    // 也就是说，如果如果 s 的最后是 sep，那么 tokens 最后会有一个空的sds字符串
+    // 可能和预想的不太一样，需要注意（对应的，tokens[0]也有可能为空sds字符串）
+    // vc-test-sds.c 测试了这种情况
     tokens[elements] = sdsnewlen(s+start,len-start);
     if (tokens[elements] == NULL) goto cleanup;
     elements++;
@@ -914,6 +940,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
 cleanup:
     {
         int i;
+        // 释放申请的内存空间，避免内存泄漏
         for (i = 0; i < elements; i++) sdsfree(tokens[i]);
         s_free(tokens);
         *count = 0;
