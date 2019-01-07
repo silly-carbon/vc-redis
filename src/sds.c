@@ -962,6 +962,7 @@ void sdsfreesplitres(sds *tokens, int count) {
  *
  * After the call, the modified sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// 将一些无法打印出来的字符，或者会经过特殊处理然后显示的字符（\n, \t, \a 等等）原样显示出来
 sds sdscatrepr(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
     while(len--) {
@@ -1060,7 +1061,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                                              is_hex_digit(*(p+3)))
                     {
                         unsigned char byte;
-
+                        // 类似于 \xff 的十六进制字符串被转成了实际大小的数值
                         byte = (hex_digit_to_int(*(p+2))*16)+
                                 hex_digit_to_int(*(p+3));
                         current = sdscatlen(current,(char*)&byte,1);
@@ -1127,6 +1128,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
+            // 为vecotr多分配一个 char * 指针的空间
             vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;
@@ -1159,6 +1161,7 @@ err:
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
     size_t j, i, l = sdslen(s);
 
+    // O(n^2)的复杂度
     for (j = 0; j < l; j++) {
         for (i = 0; i < setlen; i++) {
             if (s[j] == from[i]) {
