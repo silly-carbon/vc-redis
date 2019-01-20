@@ -8,4 +8,7 @@
 ### Phase1: SDS(Redis实现的字符串)
 #### 1. sds.h
 定义了使用到的 sdshdr5-64，这是sds的数据结构，以及一些操作这些数据结构的函数。
-
+#### 2. sds.c
+操作sds的函数实现，比如新建sds（sdsnewlen）、连接sds（sdscatlen）、复制sds（sdsdup）、释放sds（sdsfree）等操作。
+这些函数都使用了sds（char *）作为参数，该指针指向了sdshdr中的buf数组，因为结构体定义使用了`__attribute__ ((__packed__))`，
+所以很容易就能得到结构体的flags变量的值和结构体大小，方便了随后的很多计算。
