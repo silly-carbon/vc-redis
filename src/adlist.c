@@ -38,6 +38,7 @@
  * by the user before to call AlFreeList().
  *
  * On error, NULL is returned. Otherwise the pointer to the new list. */
+// 创建一个空的list，所有成员变量也都为空
 list *listCreate(void)
 {
     struct list *list;
@@ -62,10 +63,13 @@ void listEmpty(list *list)
     len = list->len;
     while(len--) {
         next = current->next;
+        // 释放listNode.value占用的空间
         if (list->free) list->free(current->value);
+        // 释放listNode占用的空间
         zfree(current);
         current = next;
     }
+    // 不会释放 list 本身
     list->head = list->tail = NULL;
     list->len = 0;
 }
@@ -73,6 +77,7 @@ void listEmpty(list *list)
 /* Free the whole list.
  *
  * This function can't fail. */
+// 完全释放list，包括list本身占用的空间
 void listRelease(list *list)
 {
     listEmpty(list);
@@ -96,6 +101,7 @@ list *listAddNodeHead(list *list, void *value)
         list->head = list->tail = node;
         node->prev = node->next = NULL;
     } else {
+        // 把原来的 head 挤到后面去，“鸠占鹊巢”
         node->prev = NULL;
         node->next = list->head;
         list->head->prev = node;
@@ -131,6 +137,7 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
+// 在 old_node 之前或者之后插入一个节点
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
@@ -140,12 +147,15 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     if (after) {
         node->prev = old_node;
         node->next = old_node->next;
+        // 判断插入到列表尾部的特殊情况
         if (list->tail == old_node) {
             list->tail = node;
         }
     } else {
+        // 插入到 old_node 之前
         node->next = old_node;
         node->prev = old_node->prev;
+        // 判断插入到列表头部的特殊情况
         if (list->head == old_node) {
             list->head = node;
         }
@@ -166,6 +176,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
  * This function can't fail. */
 void listDelNode(list *list, listNode *node)
 {
+    // 需要判断 node 是不是在list的头部或者尾部，此时需要特殊处理下head和tail指针
     if (node->prev)
         node->prev->next = node->next;
     else
@@ -183,6 +194,7 @@ void listDelNode(list *list, listNode *node)
  * call to listNext() will return the next element of the list.
  *
  * This function can't fail. */
+// 向尾部或者向头部迭代此列表
 listIter *listGetIterator(list *list, int direction)
 {
     listIter *iter;
@@ -202,11 +214,12 @@ void listReleaseIterator(listIter *iter) {
 }
 
 /* Create an iterator in the list private iterator structure */
+// 对迭代器进行“倒带”，以便可以重新从头向尾部进行遍历
 void listRewind(list *list, listIter *li) {
     li->next = list->head;
     li->direction = AL_START_HEAD;
 }
-
+// “反向倒带”
 void listRewindTail(list *list, listIter *li) {
     li->next = list->tail;
     li->direction = AL_START_TAIL;
@@ -226,6 +239,7 @@ void listRewindTail(list *list, listIter *li) {
  * }
  *
  * */
+// 对迭代器真正实现迭代的方法，每次调用都会返回一个新的节点，或者 NULL
 listNode *listNext(listIter *iter)
 {
     listNode *current = iter->next;
@@ -258,6 +272,7 @@ list *listDup(list *orig)
     copy->dup = orig->dup;
     copy->free = orig->free;
     copy->match = orig->match;
+    // 装填迭代器
     listRewind(orig, &iter);
     while((node = listNext(&iter)) != NULL) {
         void *value;
@@ -294,11 +309,13 @@ listNode *listSearchKey(list *list, void *key)
 
     listRewind(list, &iter);
     while((node = listNext(&iter)) != NULL) {
+        // 如果有 match 函数，那么就调用 match 函数进行比较
         if (list->match) {
             if (list->match(node->value, key)) {
                 return node;
             }
         } else {
+            // 没有 match 函数，直接比较指针
             if (key == node->value) {
                 return node;
             }
