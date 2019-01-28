@@ -1,4 +1,4 @@
- *Verbosely commented out redis source code based on version 5.0.2(forked from the original repository: [https://github.com/antirez/redis](https://github.com/antirez/redis)), with actual steps and phases for a novice to start with.*
+ *Verbosely commented out redis source code based on version 5.0.2(forked from the original repository: [https://github.com/antirez/redis](https://github.com/antirez/redis)), with actual steps and phases for a novice(in particular, me) to start with.*
 
 主要用来记录自己阅读源码的顺序和想法。  
 注释里很多地方用了“应该”，因为我是按照下面的顺序阅读源码的，很多时候是先看到声明或者定义，还没看到具体的用法，作者也没有注释，因此只能根据这些信息去推测用法，
@@ -14,4 +14,4 @@
 所以很容易就能得到结构体的flags变量的值和结构体大小，方便了随后的很多计算。
 #### 3. adlist.h & adlist.c
 这是一个简单链表的实现，作为数据结构里面学习的第一类数据结构，相对于上面的 sds 简单很多。
-获取list length的时间复杂度是O(1)，其他很多操作都是遍历，时间复杂度O(n)。
+获取 list length/listAddNodeHead/listAddNodeTail 等的时间复杂度是O(1)，其他很多操作都是遍历，时间复杂度O(n)。

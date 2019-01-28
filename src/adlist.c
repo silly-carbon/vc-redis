@@ -39,6 +39,7 @@
  *
  * On error, NULL is returned. Otherwise the pointer to the new list. */
 // 创建一个空的list，所有成员变量也都为空
+// complexity O(1)
 list *listCreate(void)
 {
     struct list *list;
@@ -61,6 +62,7 @@ void listEmpty(list *list)
 
     current = list->head;
     len = list->len;
+    // complexity: O(n)
     while(len--) {
         next = current->next;
         // 释放listNode.value占用的空间
@@ -78,6 +80,7 @@ void listEmpty(list *list)
  *
  * This function can't fail. */
 // 完全释放list，包括list本身占用的空间
+// complexity: O(n)
 void listRelease(list *list)
 {
     listEmpty(list);
@@ -90,6 +93,7 @@ void listRelease(list *list)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+// complexity: O(1)
 list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
@@ -117,6 +121,7 @@ list *listAddNodeHead(list *list, void *value)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+// complexity: O(1)
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
@@ -138,6 +143,7 @@ list *listAddNodeTail(list *list, void *value)
 }
 
 // 在 old_node 之前或者之后插入一个节点
+// complexity: O(1)
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
@@ -174,6 +180,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
  * It's up to the caller to free the private value of the node.
  *
  * This function can't fail. */
+// complexity: O(n)
 void listDelNode(list *list, listNode *node)
 {
     // 需要判断 node 是不是在list的头部或者尾部，此时需要特殊处理下head和tail指针
@@ -194,7 +201,7 @@ void listDelNode(list *list, listNode *node)
  * call to listNext() will return the next element of the list.
  *
  * This function can't fail. */
-// 向尾部或者向头部迭代此列表
+// 向尾部或者向头部迭代此列表 O(1)
 listIter *listGetIterator(list *list, int direction)
 {
     listIter *iter;
@@ -261,6 +268,7 @@ listNode *listNext(listIter *iter)
  * the original node is used as value of the copied node.
  *
  * The original list both on success or error is never modified. */
+
 list *listDup(list *orig)
 {
     list *copy;
@@ -274,6 +282,7 @@ list *listDup(list *orig)
     copy->match = orig->match;
     // 装填迭代器
     listRewind(orig, &iter);
+    // complexity: O(n)
     while((node = listNext(&iter)) != NULL) {
         void *value;
 
@@ -308,6 +317,7 @@ listNode *listSearchKey(list *list, void *key)
     listNode *node;
 
     listRewind(list, &iter);
+    // complexity: O(n)
     while((node = listNext(&iter)) != NULL) {
         // 如果有 match 函数，那么就调用 match 函数进行比较
         if (list->match) {
@@ -335,15 +345,18 @@ listNode *listIndex(list *list, long index) {
     if (index < 0) {
         index = (-index)-1;
         n = list->tail;
+        // complexity: O(n)
         while(index-- && n) n = n->prev;
     } else {
         n = list->head;
+        // complexity: O(n)
         while(index-- && n) n = n->next;
     }
     return n;
 }
 
 /* Rotate the list removing the tail node and inserting it to the head. */
+// complexity: O(1)
 void listRotate(list *list) {
     listNode *tail = list->tail;
 
@@ -361,6 +374,7 @@ void listRotate(list *list) {
 
 /* Add all the elements of the list 'o' at the end of the
  * list 'l'. The list 'other' remains empty but otherwise valid. */
+// complexity: O(1)
 void listJoin(list *l, list *o) {
     if (o->head)
         o->head->prev = l->tail;
