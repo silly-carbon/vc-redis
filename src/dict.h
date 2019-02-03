@@ -45,16 +45,20 @@
 #define DICT_NOTUSED(V) ((void) V)
 
 typedef struct dictEntry {
+    // 字典的键
     void *key;
+    // 字典的值，四种不同类型的值
     union {
         void *val;
         uint64_t u64;
         int64_t s64;
         double d;
     } v;
+    // 指向下一个 entry，为了hash冲突作准备，拉个链表
     struct dictEntry *next;
 } dictEntry;
 
+// 一堆操作字典的函数，为啥叫 dictType 。。。
 typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
@@ -67,6 +71,7 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
+    // hashtable buckets, 根据哈希值决定落到哪一个bucket里面
     dictEntry **table;
     unsigned long size;
     unsigned long sizemask;
@@ -76,6 +81,7 @@ typedef struct dictht {
 typedef struct dict {
     dictType *type;
     void *privdata;
+    // 为 incremental rehashing 准备了额外一个哈希表
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     unsigned long iterators; /* number of iterators currently running */
@@ -101,10 +107,13 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
+// 析构 entry 的 val
 #define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
         (d)->type->valDestructor((d)->privdata, (entry)->v.val)
 
+// 设定entry的val值，使用do while(0) 来包裹这个语句块，所以在哪使用这个宏都行
+// 如果给定了dup函数，使用复制之后的值，否则直接使用传入的值
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
         (entry)->v.val = (d)->type->valDup((d)->privdata, _val_); \
@@ -112,19 +121,24 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
         (entry)->v.val = (_val_); \
 } while(0)
 
+// 设定entry值为有符号64位整数
 #define dictSetSignedIntegerVal(entry, _val_) \
     do { (entry)->v.s64 = _val_; } while(0)
 
+// 设定为无符号64位整数
 #define dictSetUnsignedIntegerVal(entry, _val_) \
     do { (entry)->v.u64 = _val_; } while(0)
 
+// 设定double
 #define dictSetDoubleVal(entry, _val_) \
     do { (entry)->v.d = _val_; } while(0)
 
+// 释放entry的key
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d)->privdata, (entry)->key)
 
+// 设定entry的key
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
         (entry)->key = (d)->type->keyDup((d)->privdata, _key_); \
@@ -132,6 +146,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
         (entry)->key = (_key_); \
 } while(0)
 
+// 比较字典的keys，如果有比较函数，调用比较函数进行比较，否则直接比较指针
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
         (d)->type->keyCompare((d)->privdata, key1, key2) : \

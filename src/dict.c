@@ -74,6 +74,7 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 static uint8_t dict_hash_function_seed[16];
 
 void dictSetHashFunctionSeed(uint8_t *seed) {
+    // 设定hash种子值
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
 }
 
@@ -111,6 +112,7 @@ static void _dictReset(dictht *ht)
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
+    // 为将创建的字典分配内存
     dict *d = zmalloc(sizeof(*d));
 
     _dictInit(d,type,privDataPtr);
@@ -136,10 +138,13 @@ int dictResize(dict *d)
 {
     int minimal;
 
+    // 如果字典当前不能改变大小或者在重新hash，直接返回错误
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
+    // 没有重新hash的话，ht[0]就是当前正在使用的hash数据结构，找到所需的最小容量
     minimal = d->ht[0].used;
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
+    // 改变字典大小
     return dictExpand(d, minimal);
 }
 
@@ -148,10 +153,12 @@ int dictExpand(dict *d, unsigned long size)
 {
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
+    // 检查参数和字典状态
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
 
     dictht n; /* the new hash table */
+    // 算出一个合适的2的幂次方数
     unsigned long realsize = _dictNextPower(size);
 
     /* Rehashing to the same table size is not useful. */
@@ -160,17 +167,20 @@ int dictExpand(dict *d, unsigned long size)
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
+    // 分配空间，填充0
     n.table = zcalloc(realsize*sizeof(dictEntry*));
     n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
+    // 如果table为NULL表示这是一个新的dict，所以不用重新hash数据到新表了
     if (d->ht[0].table == NULL) {
         d->ht[0] = n;
         return DICT_OK;
     }
 
     /* Prepare a second hash table for incremental rehashing */
+    // 否则需要重新hash，把刚刚分配的空间作为hash之后的新的存储空间
     d->ht[1] = n;
     d->rehashidx = 0;
     return DICT_OK;
@@ -189,6 +199,7 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
+    // 最多转移n个有数据的bucket
     while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
 
@@ -196,9 +207,12 @@ int dictRehash(dict *d, int n) {
          * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
         while(d->ht[0].table[d->rehashidx] == NULL) {
+            // 如果当前 rehashidx 索引容纳的指针是NULL，这就是hash table上一个空桶（bucket）
             d->rehashidx++;
+            // 如果空桶的数量达到了这次的上限，直接返回，避免函数阻塞太长时间
             if (--empty_visits == 0) return 1;
         }
+        // de肯定不是NULL
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
@@ -206,20 +220,25 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
+            // 获取 hash bucket index
             h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            // 如果新表同一个bucket有冲突的话，新的entry直接插入冲突链表表首，冲突的entry全都后移一位
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
             d->ht[1].used++;
             de = nextde;
         }
+        // 到这里，这一个bucket的数据全部转移完毕
         d->ht[0].table[d->rehashidx] = NULL;
         d->rehashidx++;
     }
 
     /* Check if we already rehashed the whole table... */
     if (d->ht[0].used == 0) {
+        // used == 0 说明rehash过程完毕，执行清理和替换过程
         zfree(d->ht[0].table);
+        // 新表切换到首位
         d->ht[0] = d->ht[1];
         _dictReset(&d->ht[1]);
         d->rehashidx = -1;
@@ -234,16 +253,20 @@ long long timeInMilliseconds(void) {
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
+    // 转换时间格式
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
+// rehash至少ms时间
 int dictRehashMilliseconds(dict *d, int ms) {
     long long start = timeInMilliseconds();
     int rehashes = 0;
 
+    // 每次rehash 100 个 buckets
     while(dictRehash(d,100)) {
         rehashes += 100;
+        // 超过ms 时间就停止rehash并返回
         if (timeInMilliseconds()-start > ms) break;
     }
     return rehashes;
@@ -258,15 +281,19 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
+    // 如果字典当前没有关联的迭代器，rehash一个bucket，所以这个函数执行的时间很短，
+    // 可以在dict的很多操作中使用，逐步hash到新表
     if (d->iterators == 0) dictRehash(d,1);
 }
 
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
 {
+    // 生成一个新的entry并添加到dict
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
     if (!entry) return DICT_ERR;
+    // 设置entry的值
     dictSetVal(d, entry, val);
     return DICT_OK;
 }
@@ -295,6 +322,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     dictEntry *entry;
     dictht *ht;
 
+    // 如果字典正在rehash的过程中，偷偷rehash一个bucket
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
     /* Get the index of the new element, or -1 if
@@ -306,9 +334,11 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
+    // 如果正在rehash，直接添加到新表，否则旧表
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
     entry->next = ht->table[index];
+    // 基于 temporal locality 原则，新添加的entry直接放到链表第一位
     ht->table[index] = entry;
     ht->used++;
 
@@ -322,12 +352,15 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
+// 添加或者替换元素
 int dictReplace(dict *d, void *key, void *val)
 {
     dictEntry *entry, *existing, auxentry;
 
     /* Try to add the element. If the key
      * does not exists dictAdd will succeed. */
+    // 取 existing 的地址，构建了一个 dictEntry ** 的变量
+    // 要是有C#的out关键字就不用这么绕一下了。。。
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -339,6 +372,7 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
+    // entry已经存在，直接替换值即可，此时existing存的是已存在的entry的地址
     auxentry = *existing;
     dictSetVal(d, existing, val);
     dictFreeVal(d, &auxentry);
@@ -941,10 +975,16 @@ static int _dictExpandIfNeeded(dict *d)
 }
 
 /* Our hash table capability is a power of two */
+// 获取大于等于size的最小的2的n次方值
+// 因为获取hash bucket index的方式是和sizemask进行and操作：h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+// 并且sizemask等于size-1，所以size必须是
+// 2的幂次方，这样子sizemask才能全都是二进制1组成，也就保证了and之后的index总能落到0到size-1之内。
+// Java的ConcurrentHashMap也是采用的这种办法
 static unsigned long _dictNextPower(unsigned long size)
 {
     unsigned long i = DICT_HT_INITIAL_SIZE;
 
+    // 这里限定了hash的最大
     if (size >= LONG_MAX) return LONG_MAX + 1LU;
     while(1) {
         if (i >= size)

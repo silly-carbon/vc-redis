@@ -15,3 +15,7 @@
 #### 3. adlist.h & adlist.c
 这是一个简单链表的实现，作为数据结构里面学习的第一类数据结构，相对于上面的 sds 简单很多。
 获取 list length/listAddNodeHead/listAddNodeTail 等的时间复杂度是O(1)，其他很多操作都是遍历，时间复杂度O(n)。
+#### 4. dict.h
+第一秒就想到 Python 的字典，Java 的 Map...
+#### 5. siphash.c
+redis用到的hash函数实现
