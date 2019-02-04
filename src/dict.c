@@ -389,6 +389,7 @@ int dictReplace(dict *d, void *key, void *val)
 dictEntry *dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
+    // 如果key已经存在，返回对应的已经存在的entry；否则添加新的entry并返回
     return entry ? entry : existing;
 }
 
@@ -400,18 +401,25 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     dictEntry *he, *prevHe;
     int table;
 
+    // 如果两个dictht都没有用上，就没有需要删除的
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
 
+    // 偷偷rehash一个bucket
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
 
+    // 在两个dictht中查找目标key
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
+        // 定位到key对应的entry所在的bucket
         he = d->ht[table].table[idx];
         prevHe = NULL;
+        // 遍历bucket领头的的链表
         while(he) {
+            // 如果指针相等或者keyCompare函数结果为相等，那么就是相同的key（类似于Java中的 == 或者 equals）
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
+                //把当前entry从链表中剥离出来
                 if (prevHe)
                     prevHe->next = he->next;
                 else
@@ -427,6 +435,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
             prevHe = he;
             he = he->next;
         }
+        // 如果当前不在rehash，break出去，ht[1]不会被访问
         if (!dictIsRehashing(d)) break;
     }
     return NULL; /* not found */
@@ -435,6 +444,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
 int dictDelete(dict *ht, const void *key) {
+    // nofree参数是0，也就是删除找到的entry并释放占用的内存
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
 
@@ -460,6 +470,8 @@ int dictDelete(dict *ht, const void *key) {
  * dictFreeUnlinkedEntry(entry); // <- This does not need to lookup again.
  */
 dictEntry *dictUnlink(dict *ht, const void *key) {
+    // 从字典中删除entry，但是不释放entry占用的空间，只是将entry的指针从链表中删除而已
+    // unlink 这个词还是很形象的，descriptive
     return dictGenericDelete(ht,key,1);
 }
 
@@ -467,6 +479,7 @@ dictEntry *dictUnlink(dict *ht, const void *key) {
  * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
+    // 释放 unlinked 的 entry 占用的内存
     dictFreeKey(d, he);
     dictFreeVal(d, he);
     zfree(he);
@@ -480,10 +493,14 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     for (i = 0; i < ht->size && ht->used > 0; i++) {
         dictEntry *he, *nextHe;
 
+        // 回调 callback 
+        // TODO 为什么在i等于0或者i的低16位全都是0的时候才回调。
         if (callback && (i & 65535) == 0) callback(d->privdata);
 
+        // 跳过 NULL buckets
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
+            // 清空这个bucket所在链表上的所有entry
             nextHe = he->next;
             dictFreeKey(d, he);
             dictFreeVal(d, he);
@@ -502,6 +519,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
 /* Clear & Release the hash table */
 void dictRelease(dict *d)
 {
+    // 清空字典的两个哈希表
     _dictClear(d,&d->ht[0],NULL);
     _dictClear(d,&d->ht[1],NULL);
     zfree(d);
@@ -517,7 +535,9 @@ dictEntry *dictFind(dict *d, const void *key)
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
+        // 定位到bucket
         he = d->ht[table].table[idx];
+        // 在冲突链表中查找
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key))
                 return he;
@@ -545,6 +565,7 @@ long long dictFingerprint(dict *d) {
     long long integers[6], hash = 0;
     int j;
 
+    // 计算字典指纹的源数据
     integers[0] = (long) d->ht[0].table;
     integers[1] = d->ht[0].size;
     integers[2] = d->ht[0].used;
@@ -559,9 +580,11 @@ long long dictFingerprint(dict *d) {
      *
      * This way the same set of integers in a different order will (likely) hash
      * to a different number. */
+    // 计算指纹采用的方法属于一种 reduce 操作
     for (j = 0; j < 6; j++) {
         hash += integers[j];
         /* For the hashing step we use Tomas Wang's 64 bit integer hash. */
+        // Tomas Wang 的64位整数hash算法
         hash = (~hash) + (hash << 21); // hash = (hash << 21) - hash - 1;
         hash = hash ^ (hash >> 24);
         hash = (hash + (hash << 3)) + (hash << 8); // hash * 265
@@ -573,6 +596,7 @@ long long dictFingerprint(dict *d) {
     return hash;
 }
 
+// 获取字典的迭代器
 dictIterator *dictGetIterator(dict *d)
 {
     dictIterator *iter = zmalloc(sizeof(*iter));
@@ -586,6 +610,7 @@ dictIterator *dictGetIterator(dict *d)
     return iter;
 }
 
+// 获取一个安全的迭代器
 dictIterator *dictGetSafeIterator(dict *d) {
     dictIterator *i = dictGetIterator(d);
 
@@ -593,47 +618,64 @@ dictIterator *dictGetSafeIterator(dict *d) {
     return i;
 }
 
+// 获取迭代器中的下一个 entry
 dictEntry *dictNext(dictIterator *iter)
 {
     while (1) {
         if (iter->entry == NULL) {
+            // 如果 iter->entry == NULL ，说明当前迭代的到的bucket为空，或者是新的迭代器，或者迭代完毕了当前的链表
+            // 无论哪种情况，都得换bucket或者hash表
             dictht *ht = &iter->d->ht[iter->table];
+            // 如果这是一个刚创建的迭代器，做一些记录工作
             if (iter->index == -1 && iter->table == 0) {
                 if (iter->safe)
+                    // 如果是一个安全迭代器，无需记录字典指纹
                     iter->d->iterators++;
                 else
                     iter->fingerprint = dictFingerprint(iter->d);
             }
+            // 无论如何都应该切换到下一个bucket，iter->index就是hash表中bucket的index
             iter->index++;
             if (iter->index >= (long) ht->size) {
+                // 代码走到这里，说明当前的hash表已经迭代完毕了，看是不是需要迭代ht[1]
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
+                    // 需要迭代ht[1]
                     iter->table++;
                     iter->index = 0;
                     ht = &iter->d->ht[1];
                 } else {
+                    // 不需要迭代ht[1],那么整个迭代器已经迭代完毕
                     break;
                 }
             }
+            // 到了下一个bucket，可能为NULL
             iter->entry = ht->table[iter->index];
         } else {
+            // 当前entry不为NULL，直接找到后继entry就行，后继entry为NULL也没事，后面统一处理
             iter->entry = iter->nextEntry;
         }
         if (iter->entry) {
+            // 不为空说明有数据，返回
             /* We need to save the 'next' here, the iterator user
              * may delete the entry we are returning. */
             iter->nextEntry = iter->entry->next;
             return iter->entry;
         }
+        //为空，接着找下一个
     }
     return NULL;
 }
 
+// 删除迭代器，释放迭代器占用的空间
 void dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
+        // 到这说明这个迭代器已经被使用过了，清除留下的记录
         if (iter->safe)
             iter->d->iterators--;
         else
+            // 使用迭代器的时候一定不能对字典做除了读以外的操作，否则数据很可能不一致
+            // Java中解决类似问题可以使用 CopyOnWriteArrayList
             assert(iter->fingerprint == dictFingerprint(iter->d));
     }
     zfree(iter);
@@ -653,15 +695,21 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
+            // 1. random() % 现在使用的buckets数量
+            // 2. 1的结果加上 rehashidx， 确保最后结果不会落到已经rehash过的buckets里面，也就是说最后结果只能是现在使用的buckets的index
+            // 3. 当然index，也就是下面的h，可能在ht[0]或者ht[1]里面
             h = d->rehashidx + (random() % (d->ht[0].size +
                                             d->ht[1].size -
                                             d->rehashidx));
+            // 如果 h 大于ht[0]的size，那么显然应该在ht[1]里面
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
                                       d->ht[0].table[h];
         } while(he == NULL);
     } else {
         do {
+            // sizemask全都是二进制1组成，和它进行and操作确保结果位于区间[0, sizemask]，数组不会越界
             h = random() & d->ht[0].sizemask;
+            // 获取一个随机的bucket
             he = d->ht[0].table[h];
         } while(he == NULL);
     }
@@ -670,14 +718,17 @@ dictEntry *dictGetRandomKey(dict *d)
      * list and we need to get a random element from the list.
      * The only sane way to do so is counting the elements and
      * select a random index. */
+    // 到这里，he 肯定不为 NULL
     listlen = 0;
     orighe = he;
+    // 获取这个bucket所在的链表的长度
     while(he) {
         he = he->next;
         listlen++;
     }
-    listele = random() % listlen;
+    listele = random() % listlen; // listele 落在 [0, listlen)
     he = orighe;
+    // 找到 listele 对应的entry并返回， 如果listele 是 0，那么直接返回 orighe，不会进入循环
     while(listele--) he = he->next;
     return he;
 }
@@ -711,6 +762,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned long maxsteps;
 
     if (dictSize(d) < count) count = dictSize(d);
+    // maxsteps 是尝试获取随机entry的最多次数，也是为了快速响应而设计的，和上面的 incremental rehashing 目的一样
     maxsteps = count*10;
 
     /* Try to do a rehashing work proportional to 'count'. */
@@ -721,14 +773,17 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             break;
     }
 
+    // rehash的时候需要考虑两个hash表
     tables = dictIsRehashing(d) ? 2 : 1;
     maxsizemask = d->ht[0].sizemask;
+    // maxsizemask是这两个 hash 表里面最大的 sizemask
     if (tables > 1 && maxsizemask < d->ht[1].sizemask)
         maxsizemask = d->ht[1].sizemask;
 
     /* Pick a random point inside the larger table. */
     unsigned long i = random() & maxsizemask;
     unsigned long emptylen = 0; /* Continuous empty entries so far. */
+    // 所需的entry数量足够或者达到了最大步数就不再循环
     while(stored < count && maxsteps--) {
         for (j = 0; j < tables; j++) {
             /* Invariant of the dict.c rehashing: up to the indexes already
@@ -740,10 +795,15 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
                 if (i >= d->ht[1].size)
+                    // 这种情况下，rehash 是为了减小字典的size，那么切换到ht[1] table数组会越界
+                    // 所以不能continue，只能接着在ht[0]里取数据，而且不能取已经rehash过的数据
                     i = d->rehashidx;
                 else
+                    //这种情况下，i只能在ht[1]里面取到数据
                     continue;
             }
+            // 走到这的时候，如果在rehash，i 要不是>=rehashidx(这时j可以为0或者1)，要不就是小于rehashidx（这时j=1）
+            // 如果不在rehash，i肯定也不会越界
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];
 
@@ -751,6 +811,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
              * locations if they reach 'count' (with a minimum of 5). */
             if (he == NULL) {
                 emptylen++;
+                // 最少尝试5个连续空的就放弃这个 i 值
                 if (emptylen >= 5 && emptylen > count) {
                     i = random() & maxsizemask;
                     emptylen = 0;
@@ -760,14 +821,18 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                 while (he) {
                     /* Collect all the elements of the buckets found non
                      * empty while iterating. */
+                    // 把当前的entry的地址放到des数组里面
                     *des = he;
+                    // des指向数组的下一个slot
                     des++;
+                    // 找到这个bucket 的链表的下一个entry
                     he = he->next;
                     stored++;
                     if (stored == count) return stored;
                 }
             }
         }
+        // 这种方式会造成结果不够离散
         i = (i+1) & maxsizemask;
     }
     return stored;
@@ -775,6 +840,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
 
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
+ // 大佬的反转比特的算法
 static unsigned long rev(unsigned long v) {
     unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
     unsigned long mask = ~0;

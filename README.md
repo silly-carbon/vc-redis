@@ -17,5 +17,12 @@
 获取 list length/listAddNodeHead/listAddNodeTail 等的时间复杂度是O(1)，其他很多操作都是遍历，时间复杂度O(n)。
 #### 4. dict.h
 第一秒就想到 Python 的字典，Java 的 Map...
+dict数据结构的组织是：
+```
+dictEntry保存key、value和指向下一个dictEntry的指针next，以便形成解决hash冲突的链表；
+多个dictEntry组成dictht结构体的table数组，这些dictEntry是buckets；每一个哈希之后的entry肯定属于某个bucket，多个entry如果哈希到同一个bucket，那么就发生冲突，解决冲突的办法就是使用链表，根据时间局部性原理（temporal locality），新来的entry插入到链表的首部。一个bucket可能会在尾部连着多个entry，形成链表；
+dict里面有两个dictht，使用数组ht[2]保存。平时使用ht[0]，rehash的时候会哈希到ht[1]然后用ht[1]替换掉ht[0]；
+dict的size需要改变的时候会进行rehash，rehash是渐进式的，摊销到后续的多个操作上面，避免阻塞太久；
+```
 #### 5. siphash.c
 redis用到的hash函数实现
