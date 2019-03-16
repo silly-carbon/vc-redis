@@ -952,8 +952,11 @@ unsigned long dictScan(dict *d,
         m0 = t0->sizemask;
 
         /* Emit entries at cursor */
+        // 定位到cursor指向的 bucket，t0->table[v & m0] 正是那个bucket
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
+        // de 也指向那个bucket
         de = t0->table[v & m0];
+        // 遍历这个bucket和它后面拉的链表
         while (de) {
             next = de->next;
             fn(privdata, de);
@@ -962,6 +965,8 @@ unsigned long dictScan(dict *d,
 
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
+        // TODO 一顿操作猛如虎，可惜我是二百五
+        // 确实没看懂这个算法。。。待回头看
         v |= ~m0;
 
         /* Increment the reverse cursor */
@@ -974,6 +979,7 @@ unsigned long dictScan(dict *d,
         t1 = &d->ht[1];
 
         /* Make sure t0 is the smaller and t1 is the bigger table */
+        // 上面作者的注释说了要从小表开始
         if (t0->size > t1->size) {
             t0 = &d->ht[1];
             t1 = &d->ht[0];
@@ -983,6 +989,7 @@ unsigned long dictScan(dict *d,
         m1 = t1->sizemask;
 
         /* Emit entries at cursor */
+        // 处理完毕小表里面的bucket
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
         de = t0->table[v & m0];
         while (de) {
@@ -1070,30 +1077,39 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
 {
     unsigned long idx, table;
     dictEntry *he;
+    // 清空指向要返回的 entry 的指针
     if (existing) *existing = NULL;
 
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
+    // optionally 遍历这两个ht，找到目标位置
     for (table = 0; table <= 1; table++) {
+        // 获取 key 的index
         idx = hash & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
+                // 如果key已经存在了，返回 -1
                 if (existing) *existing = he;
                 return -1;
             }
             he = he->next;
         }
+        // 走到这里，说明key不存在这个 idx 对应的链表里面，所以查找成功，可以返回
+        // 前提是没有在rehash
+        // 如果在rehash，得在表2里面再重复一遍查找的过程
         if (!dictIsRehashing(d)) break;
     }
     return idx;
 }
 
 void dictEmpty(dict *d, void(callback)(void*)) {
+    // 清空字典的两个哈希表
     _dictClear(d,&d->ht[0],callback);
     _dictClear(d,&d->ht[1],callback);
+    // 设定状态为不在rehash
     d->rehashidx = -1;
     d->iterators = 0;
 }
@@ -1126,6 +1142,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
         he = *heref;
         while(he) {
             if (oldptr==he->key)
+                // TODO 如果需要key对应的entry的话，直接返回指向entry的指针就行啊（也就是he），为什么又嵌套了一层指针？
                 return heref;
             heref = &he->next;
             he = *heref;
