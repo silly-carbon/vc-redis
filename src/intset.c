@@ -215,6 +215,8 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
     // 因为 resize 函数不会设定is的length，所以这里需要显式处理一下
     // TODO 从这里看出，如果value大于等于0，直接放在contents最后，否则放在最前面，这样子无法保证intset是有序的
     // 使用二分查找法的前提就是有序，难道是在调用此函数之后再进行排序？
+    // 更新：确实还是有序的，因为走到这个函数就代表encoding需要升级，那么说明导致encoding升级的值value一定大于
+    // 目前集合中所有的值（这时放在最后）或者小于集合中所有的值（放在最前面）
     is->length = intrev32ifbe(intrev32ifbe(is->length)+1);
     return is;
 }
