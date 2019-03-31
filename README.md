@@ -5,7 +5,6 @@
 再在随后的源码里面验证自己的猜想。
 
 ## 阅读源码的顺序(Phases of reading source code)
-### Phase1: SDS(Redis实现的字符串)
 #### 1. sds.h
 定义了使用到的 sdshdr5-64，这是sds的数据结构；另外还有一些操作这些数据结构的函数。
 #### 2. sds.c
@@ -30,3 +29,12 @@ dict的size需要改变的时候会进行rehash，rehash是渐进式的，摊销
 ```
 #### 5. siphash.c
 redis用到的hash函数实现
+
+#### 6. intset.h & intset.c
+这是整数集合的实现。  
+整数集合可以保存三种不同encoding的（16，32，64位整数）整数，不过不能并存；可以实现
+encoding的升级（但是没有encoding降级的实现，在代码里很多处都利用这一特点，如果查找的value的encoding大于
+整数集合现在的encoding，说明value肯定不在整数集合之中）。  
+查找整数集合中元素的时候使用的是二分查找法，这就要求整数集合是有序的，但是其中有个函数`intsetUpgradeAndAdd`在插入的时候却不会保持顺序，
+有点费解，待后续回顾。    
+在往intset中插入数据前先进行查找，没找到才插入，由此符合SET的特性。
